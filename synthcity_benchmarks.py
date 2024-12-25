@@ -1,5 +1,6 @@
 import argparse
 import os 
+from ast import literal_eval
 
 # stdlib
 import sys
@@ -29,10 +30,22 @@ from GREAT_plugin import GREAT_plugin, PAFT_plugin, PaftPlugin
 from GANBLR_plugin import GANBLR_plugin, GANBLRPP_plugin
 
 # synthcity absolute
-from synthcity.benchmark import Benchmarks
-
+from synthcity.metrics import Metrics
+from synthcity.metrics.scores import ScoreEvaluator
 
 import pickle
+
+def data_exist(train_folder, test_folder) -> bool:
+    train_exist = os.path.exists(f'{train_folder}/{df_name}.csv')
+    test_exist  = os.path.exists(f'{test_folder}/{df_name}.csv')
+
+    if not train_exist:
+        print(f'No train data for dataset "{df_name}"')
+    
+    if not test_exist:
+        print(f'No test data for dataset "{df_name}"')
+
+    return train_exist and test_exist
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Baseline Runner")
@@ -52,9 +65,6 @@ if __name__ == '__main__':
     if not os.path.exists(f'{data_folder}/data_info.csv'):
         raise Exception(f'Missing Targets df in folder "{data_folder}"')
 
-    # Sort dfs according to row number
-    data_info = pd.read_csv(f'{data_folder}/data_info.csv', index_col='df_name').sort_values('row_number')
-    df_names = data_info.index
 
     # df_names_with_csv = os.listdir(train_folder)
     # for file_name in df_names_with_csv:
@@ -78,6 +88,20 @@ if __name__ == '__main__':
         'bayesian_network' : {'struct_learning_n_iter' : 10}
     }
 
+    fit_kwargs = {
+        'great' : {},
+        'paft' : {},
+        'ctgan' : {},
+        'tvae' : {},
+        'rtvae' : {},
+        'ddpm' : {},
+        'ganblr' : {'epochs' : 10, 'verbose' : None},
+        'ganblr++' : {'epochs' : 10, 'verbose' : None},
+        'pategan' : {},
+        'adsgan' : {},
+        'bayesian_network' : {'struct_learning_n_iter' : 10}
+    }
+
     metrics =  {
             'sanity': ['data_mismatch', 'common_rows_proportion', 'nearest_syn_neighbor_distance', 'close_values_probability', 'distant_values_probability'],
             'stats': ['jensenshannon_dist', 'chi_squared_test', 'feature_corr', 'inv_kl_divergence', 'ks_test', 'max_mean_discrepancy', 'wasserstein_dist', 'prdc', 'alpha_precision', 'survival_km_distance'],
@@ -87,8 +111,8 @@ if __name__ == '__main__':
     }
 
     plugins_list = [
-                'great',
-                'paft',
+                # 'great',
+                # 'paft',
                 'ctgan', 'tvae', 'rtvae', 'ddpm', 'ganblr', 'ganblr++', 'pategan', 'adsgan', 'bayesian_network']
     
     generators = Plugins()
@@ -112,70 +136,96 @@ if __name__ == '__main__':
 
     print('Plugins Added')
 
+    # Sort dfs according to row number
+    data_info = pd.read_csv(f'{data_folder}/data_info.csv', index_col='df_name').sort_values('row_number')
+    df_names = data_info.index
+
+    df_names = ['iris', 'kekes', '560_bodyfat']
+    plugins_list = ['ctgan', 'tvae']
+
     for df_name in df_names:
         print('Start', df_name)
 
+        if not data_exist(train_folder, test_folder):
+            print(f'{df_name}, Benchmarks skipped')
+            continue
+        
         df_train = pd.read_csv(f'{train_folder}/{df_name}.csv')
         df_test = pd.read_csv(f'{test_folder}/{df_name}.csv')
 
         target_name = data_info.loc[df_name, 'target_name']
         task_type   = data_info.loc[df_name, 'task_type']
 
-        loader = GenericDataLoader(df_train, target_column=target_name)
-        test_loader = GenericDataLoader(df_test, target_column=target_name)
-
         if 'ganblr++' in plugins_list:
-            init_kwargs['ganblr++']['numerical_columns'] = data_info.loc[df_name, 'numeric_cols_indxs']
-
-        tests = [(plugin_name, plugin_name, init_kwargs[plugin_name]) for plugin_name in plugins_list if plugin_name != 'paft']
-
-        # score = Benchmarks.evaluate(
-        #     tests,
-        #     loader,
-        #     X_test=test_loader,
-        #     task_type=task_type,
-        #     metrics=metrics,
-        #     synthetic_cache=True,
-        #     repeats=args.repeats,
-        # )
-
-        if 'paft' in plugins_list:
-            order = sorted_order_dict[df_name]
-
-            if order == '':
-                # No df in calculated func dependencies
-                order = df_train.columns.tolist() # a fixed random order for all samples
-                # random order
-                random.shuffle(order)
-                order = ','.join(order)
-
-            df_train = df_train[order.split(',')]
-            df_test  = df_test[order.split(',')]
-
-            loader = GenericDataLoader(df_train, target_column=target_name)
-            test_loader = GenericDataLoader(df_test, target_column=target_name)
+            init_kwargs['ganblr++']['numerical_columns'] = literal_eval(data_info.loc[df_name, 'numeric_cols_indxs'])
         
-            # paft_score = Benchmarks.evaluate(
-        #     [('paft', 'paft', init_kwargs['paft'])],
-        #     loader,
-        #     X_test=test_loader,
-        #     task_type=task_type,
-        #     metrics=metrics,
-        #     synthetic_cache=True,
-        #     synthetic_reuse_if_exists=False,
-        #     repeats=args.repeats,
-        # )
-            # score['paft'] = paft_score['paft']
+        benchmarks_results = {}
 
-        score = {'kek' : target_name,
-                 'lol' : df_name,
-                 'qwe' : task_type,
-                 'shape' : df_train.shape,
-                 'shape_test' : df_test.shape}
+        for plugin_name in plugins_list:
+            if plugin_name == 'paft':
+                order = sorted_order_dict[df_name]
+
+                if order == '':
+                    # No df in calculated func dependencies
+                    order = df_train.columns.tolist() # a fixed random order for all samples
+                    # random order
+                    random.shuffle(order)
+                    order = ','.join(order)
+
+                train_loader = GenericDataLoader(df_train[order.split(',')], target_column=target_name)
+                test_loader  = GenericDataLoader(df_test[order.split(',')], target_column=target_name)            
+            else:
+                train_loader = GenericDataLoader(df_train, target_column=target_name)
+                test_loader  = GenericDataLoader(df_test, target_column=target_name)
+
+            print(plugin_name, 'Start')
+            
+            gen = generators.get(plugin_name, **init_kwargs[plugin_name])
+            gen.fit(train_loader, **fit_kwargs[plugin_name])
+
+            print(plugin_name, 'fitted OK')
+
+            scores = ScoreEvaluator()
+
+            for repeat in range(args.repeats):
+                X_syn = gen.generate(len(df_test))
+
+                print(plugin_name, repeat, 'generated OK')
+
+                experiment_scores = Metrics.evaluate(
+                            X_gt=test_loader,
+                            X_syn=X_syn,
+                            # X_train=loader,
+                            metrics=metrics,
+                            task_type=task_type,
+                            random_state=239 * repeat,
+                            )
+        
+        
+                mean_score = experiment_scores["mean"].to_dict()
+                errors = experiment_scores["errors"].to_dict()
+                duration = experiment_scores["durations"].to_dict()
+                direction = experiment_scores["direction"].to_dict()
+
+                for key in mean_score:
+                    scores.add(
+                        key,
+                        mean_score[key],
+                        errors[key],
+                        duration[key],
+                        direction[key],
+                    )
+
+                print(repeat, 'experiment OK')
+            
+            benchmarks_results[plugin_name] = scores.to_dataframe()
+
+
 
         output_folder = f'./synthcity_res/{df_name}/result_dict.pckl'
         os.makedirs(os.path.dirname(output_folder), exist_ok=True)
+
         with open(output_folder, 'wb+') as f:
-            pickle.dump(score, f)
+            pickle.dump(benchmarks_results, f)
 
         print(df_name, ', Benchmarks results saved')
