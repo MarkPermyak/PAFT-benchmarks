@@ -548,21 +548,16 @@ if __name__ == "__main__":
     print(os.listdir(args.db_path))
     
     
-    args.curr_folder_path = pathlib.Path(__file__).parent.resolve()
+    args.curr_folder_path = str(pathlib.Path(__file__).parent.resolve())
 
-    for data_csv_path in os.listdir(args.db_path):
-        logging.debug( "Working with file: {}".format(data_csv_path) )
-        HyFd(data_csv_path, args)
-
-
-    # fd_results_pyro = {}
-    # # load FD results from HyFD
-    # files = os.listdir("../data/train")
+    data_info = pd.read_csv(f'./data/data_info.csv', index_col='df_name').sort_values('row_number')
+    df_names = data_info.index
     
-    # sorted_order = {}
-    # for f in files:
-    #     # ../data/train/ds1.csv ---> ds1
-    #     name = f.split('/')[-1].split('.')[0]
-    #     print('='*15, name)
+    
+    for df_name in df_names:
+        data_csv_path = f'{df_name}.csv'
 
-    #     fd_list = parse_dictionary_hyfd(name)
+        # logging.info( "Working with file: {}".format(data_csv_path))
+        print('Working with {}'.format(data_csv_path))
+        HyFd(data_csv_path, args)
+        print('{}, OK'.format(data_csv_path))

@@ -171,10 +171,10 @@ class GReaT:
         )
 
         # check the data loader first item
-        print(type(great_trainer))
+        # print(type(great_trainer))
     
         train_stuff = next(iter(great_trainer.get_train_dataloader()))
-        print("Train Stuff: ", train_stuff)
+        # print("Train Stuff: ", train_stuff)
         # print("Train Features: ", train_features)
         # print("Train Labels: ", train_labels)
         # input()
